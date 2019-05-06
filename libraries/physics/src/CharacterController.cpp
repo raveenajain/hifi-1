@@ -775,6 +775,9 @@ void CharacterController::updateState() {
 
                     // compute jumpSpeed based on the scaled jump height for the default avatar in default gravity.
                     const float jumpHeight = std::max(_scaleFactor * DEFAULT_AVATAR_JUMP_HEIGHT, DEFAULT_AVATAR_MIN_JUMP_HEIGHT);
+
+                    std::cout << "here sc" << _scaleFactor << std::endl;
+
                     const float jumpSpeed = sqrtf(2.0f * -DEFAULT_AVATAR_GRAVITY * jumpHeight);
                     velocity += jumpSpeed * _currentUp;
                     _rigidBody->setLinearVelocity(velocity);

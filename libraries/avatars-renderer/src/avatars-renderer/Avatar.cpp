@@ -1285,22 +1285,29 @@ glm::vec3 Avatar::getAbsoluteJointTranslationInObjectFrame(int index) const {
                 int headJointIndex = getJointIndex("Head");
                 if (headJointIndex >= 0) {
                     _skeletonModel->getAbsoluteJointTranslationInRigFrame(headJointIndex, translation);
+                    std::cout << "here head " << translation << std::endl;
                 }
             }
             return Quaternions::Y_180 * translation * Quaternions::Y_180;
         }
         case FARGRAB_RIGHTHAND_INDEX: {
+            std::cout << "here right" << std::endl;
             return extractTranslation(_farGrabRightMatrixCache.get());
         }
         case FARGRAB_LEFTHAND_INDEX: {
+            std::cout << "here left" << std::endl;
+
             return extractTranslation(_farGrabLeftMatrixCache.get());
         }
         case FARGRAB_MOUSE_INDEX: {
+            std::cout << "here mouse" << std::endl;
+
             return extractTranslation(_farGrabMouseMatrixCache.get());
         }
         default: {
             glm::vec3 translation;
             _skeletonModel->getAbsoluteJointTranslationInRigFrame(index, translation);
+
             return Quaternions::Y_180 * translation;
         }
     }
@@ -1950,6 +1957,7 @@ void Avatar::ensureInScene(AvatarSharedPointer self, const render::ScenePointer&
 
 // thread-safe
 float Avatar::getEyeHeight() const {
+    std::cout << "here eye height " << getModelScale() << " " << getUnscaledEyeHeight() << std::endl;
     return getModelScale() * getUnscaledEyeHeight();
 }
 

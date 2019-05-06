@@ -521,7 +521,10 @@ void SpatiallyNestable::setWorldTransform(const glm::vec3& position, const glm::
 }
 
 glm::vec3 SpatiallyNestable::getWorldPosition(bool& success) const {
-    return getTransform(success).getTranslation();
+    glm::vec3 temp = getTransform(success).getTranslation();
+    //here temp(-6.63102e-07 -10.4833 2.01166e-07)
+    //correct - here temp(-9.824e-08 - 10.4833 8.31089e-07)
+    return temp;
 }
 
 glm::vec3 SpatiallyNestable::getWorldPosition() const {
@@ -748,6 +751,12 @@ const Transform SpatiallyNestable::getTransform(bool& success, int depth) const 
     Transform result;
     // return a world-space transform for this object's location
     Transform parentTransform = getParentTransform(success, depth);
+
+        //here par(0 0 0 1)(1 1 1)(0.0062928 0.0043 0.00542766)
+        //correct - here par(-0.0157073 0 0 0.999877)(1 1 1)(-3.06623e-05 - 9.83342 1.4398)
+
+
+
     _transformLock.withReadLock([&] {
         Transform::mult(result, parentTransform, _transform);
     });
@@ -795,6 +804,12 @@ const Transform SpatiallyNestable::getJointTransform(int jointIndex, bool& succe
     Transform::mult(jointInWorldFrame, worldTransform, jointInObjectFrame);
     success = true;
     return jointInWorldFrame;
+
+    /*here frame(-0.0157073 0 0 0.999877)(-4.14561e-05 1.83677 1.36792)
+        here frame(-0.0157073 0 0 0.999877)(-3.05641e-05 0.64984 1.4398)*/
+
+    /*here frame(0.559621 0.0450511 - 0.827356 0.0166568)(0.210281 - 0.146965 - 0.0495393)
+        here frame(-0.0157073 0 0 0.999877)(-4.14587e-05 26.318 0.598566)*/
 }
 
 void SpatiallyNestable::setTransform(const Transform& transform, bool& success) {
@@ -1045,6 +1060,7 @@ bool SpatiallyNestable::hasChildren() const {
 
 const Transform SpatiallyNestable::getAbsoluteJointTransformInObjectFrame(int jointIndex) const {
     Transform jointTransformInObjectFrame;
+
     glm::vec3 position = getAbsoluteJointTranslationInObjectFrame(jointIndex);
     glm::quat orientation = getAbsoluteJointRotationInObjectFrame(jointIndex);
     glm::vec3 scale = getAbsoluteJointScaleInObjectFrame(jointIndex);

@@ -1055,6 +1055,7 @@ int AvatarData::parseDataFromBuffer(const QByteArray& buffer) {
             }
             return buffer.size();
         }
+        std::cout << "here scale " << scale << std::endl;
         setTargetScale(scale);
         sourceBuffer += sizeof(AvatarDataPacket::AvatarScale);
         int numBytesRead = sourceBuffer - startSection;
@@ -1115,7 +1116,12 @@ int AvatarData::parseDataFromBuffer(const QByteArray& buffer) {
         auto srcSensorToWorldScale = data->sensorToWorldScale;
         unpackFloatScalarFromSignedTwoByteFixed((int16_t*)&srcSensorToWorldScale, &sensorToWorldScale, SENSOR_TO_WORLD_SCALE_RADIX);
         glm::vec3 sensorToWorldTrans(data->sensorToWorldTrans[0], data->sensorToWorldTrans[1], data->sensorToWorldTrans[2]);
+
         glm::mat4 sensorToWorldMatrix = createMatFromScaleQuatAndPos(glm::vec3(sensorToWorldScale), sensorToWorldQuat, sensorToWorldTrans);
+        std::cout << "here sensor " << glm::vec3(sensorToWorldScale) << " " << sensorToWorldQuat << " " <<
+            sensorToWorldTrans << std::endl;
+
+
         if (_sensorToWorldMatrixCache.get() != sensorToWorldMatrix) {
             _sensorToWorldMatrixCache.set(sensorToWorldMatrix);
             _sensorToWorldMatrixChanged = now;
@@ -2999,7 +3005,9 @@ glm::mat4 AvatarData::getSensorToWorldMatrix() const {
 
 // thread-safe
 float AvatarData::getSensorToWorldScale() const {
-    return extractUniformScale(_sensorToWorldMatrixCache.get());
+    float temp = extractUniformScale(_sensorToWorldMatrixCache.get());
+  //  std::cout << "here world scale" << temp << std::endl;
+    return temp;
 }
 
 // thread-safe

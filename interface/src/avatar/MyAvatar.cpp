@@ -1062,8 +1062,29 @@ void MyAvatar::updateSensorToWorldMatrix() {
     // update the sensor mat so that the body position will end up in the desired
     // position when driven from the head.
     float sensorToWorldScale = getEyeHeight() / getUserEyeHeight();
+
+    //std::cout << "here eye " << sensorToWorldScale << " " << glm::vec3(sensorToWorldScale) << " " << getEyeHeight() << std::endl;
+
+
     glm::mat4 desiredMat = createMatFromScaleQuatAndPos(glm::vec3(sensorToWorldScale), getWorldOrientation(), getWorldPosition());
+
+           // std::cout << "here world " << sensorToWorldScale << " " << getWorldOrientation() << " " << getWorldPosition() << std::endl; 
+
     _sensorToWorldMatrix = desiredMat * glm::inverse(_bodySensorMatrix);
+    //std::cout << "here mat " << _sensorToWorldMatrix << " " <<  desiredMat << " " << glm::inverse(_bodySensorMatrix) << std::endl; 
+
+    //here mat[14.9408 0 0 1.06819e-05; 0 14.9408 0 - 36.1652; 0 0 14.9408 0.0345594; 0 0 0 1;]
+    //        [14.9408 0 0 - 2.10024e-07; 0 14.9408 0 - 10.4833; 0 0 14.9408 4.61936e-07; 0 0 0 1;]
+    //        [1 - 0 0 7.29009e-07; - 0 1 - 0 - 1.71892; 0 - 0 1 0.00231306; - 0 0 - 0 1;]
+    //here mat 14.9408 (0 0 0 1) (-1.90134e-08 -10.4833 3.12924e-07)
+
+
+    //        here mat[0.984467 0 0 1.07937e-05; 0 0.984467 0 - 11.6719; 0 0 0.984467 0.03456; 0 0 0 1;]
+    //            [0.984467 0 0 - 9.824e-08; 0 0.984467 0 - 10.4833; 0 0 0.984467 9.97097e-07; 0 0 0 1;]
+    //            [1 - 0 0 1.10638e-05; - 0 1 - 0 - 1.20736; 0 - 0 1 0.0351043; - 0 0 - 0 1;]
+    //here mat 0.984467(0 0 0 1)(-9.824e-08 - 10.4833 1.68092e-06)
+
+
 
     bool hasSensorToWorldScaleChanged = false;
     if (fabsf(getSensorToWorldScale() - sensorToWorldScale) > MIN_SCALE_CHANGED_DELTA) {

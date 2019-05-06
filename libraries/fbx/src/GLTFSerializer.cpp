@@ -844,6 +844,16 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
     }
 
 
+    // Build hfm offset
+    float unitScaleFactor = 1.0f;
+    float offsetScale = mapping.value("scale", 1.0f).toFloat() * unitScaleFactor;  // glTF units in meters
+    glm::quat offsetRotation = glm::quat(glm::radians(glm::vec3(mapping.value("rx").toFloat(), mapping.value("ry").toFloat(), 
+        mapping.value("rz").toFloat())));
+    hfmModel.offset = glm::translate(glm::mat4(), glm::vec3(mapping.value("tx").toFloat(), mapping.value("ty").toFloat(),
+        mapping.value("tz").toFloat())) * glm::mat4_cast(offsetRotation) * 
+        glm::scale(glm::mat4(), glm::vec3(offsetScale, offsetScale, offsetScale));
+
+
      // Build map from original to new indices
     QVector<int> originalToNewNodeIndexMap;
     originalToNewNodeIndexMap.fill(-1, numNodes);
@@ -851,37 +861,67 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
         originalToNewNodeIndexMap[sortedNodes[i]] = i;
     }
 
+    QMap<int, glm::mat4> globalTransforms;
 
     // Build joints
     HFMJoint joint;
-    joint.distanceToParent = 0;
     hfmModel.jointIndices["x"] = numNodes;
 
     for (int nodeIndex : sortedNodes) {
         auto& node = _file.nodes[nodeIndex];
 
-        joint.parentIndex = parents[nodeIndex];
-        if (joint.parentIndex != -1) {
-            joint.parentIndex = originalToNewNodeIndexMap[joint.parentIndex];
-        }
         joint.transform = node.transforms.first();
         joint.translation = extractTranslation(joint.transform);
         joint.rotation = glmExtractRotation(joint.transform);
         glm::vec3 scale = extractScale(joint.transform);
-        joint.postTransform = glm::scale(glm::mat4(), scale);  
+        joint.postTransform = glm::scale(glm::mat4(), scale);
+
+        joint.parentIndex = parents[nodeIndex];
+        joint.transform = hfmModel.offset * joint.transform;
+        if (joint.parentIndex != -1) {
+            joint.parentIndex = originalToNewNodeIndexMap[joint.parentIndex];
+            auto parentJoint = hfmModel.joints[joint.parentIndex];
+            joint.transform = parentJoint.transform * joint.transform;
+        } 
+
+           
+        /*glm::mat4 temp = joint.transform; 
+        if (joint.parentIndex != -1) {
+            if (node.defined["mesh"]) {
+                temp = globalTransforms.value(joint.parentIndex);
+            } else {
+                temp = joint.transform * globalTransforms.value(joint.parentIndex);
+            }
+        } 
+        globalTransforms.insert(nodeIndex, temp);*/
+
+        /*if (joint.parentIndex == -1) {
+        globalTransforms.insert(nodeIndex, translate(glm::mat4(), joint.translation) * glm::mat4_cast(joint.rotation) *
+                          joint.postTransform);
+        } else {
+            globalTransforms.insert(nodeIndex, translate(glm::mat4(), joint.translation) * glm::mat4_cast(joint.rotation) *
+                                                   joint.postTransform * globalTransforms.value(joint.parentIndex));
+        }*/
+        
+
+        joint.distanceToParent = 0.0f;
+        if (joint.parentIndex != -1) {
+            auto parentJoint = hfmModel.joints[joint.parentIndex];
+            joint.distanceToParent = glm::distance(parentJoint.translation, joint.translation);
+        }
 
         joint.name = node.name;
         joint.isSkeletonJoint = false;
         hfmModel.joints.push_back(joint);
     }
+    hfmModel.shapeVertices.resize(hfmModel.joints.size());
 
-
+    
     // Build skeleton
     std::vector<glm::mat4> jointInverseBindTransforms;
     jointInverseBindTransforms.resize(numNodes);
     hfmModel.hasSkeletonJoints = !_file.skins.isEmpty();
     if (hfmModel.hasSkeletonJoints) {
-        hfmModel.hasSkeletonJoints = true;
         std::vector<std::vector<float>> inverseBindValues;
         getSkinInverseBindMatrices(inverseBindValues);
 
@@ -906,9 +946,19 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                 } else {
                     jointInverseBindTransforms[jointIndex] = glm::mat4();
                 }
-                glm::vec3 bindTranslation = extractTranslation(hfmModel.offset * glm::inverse(jointInverseBindTransforms[jointIndex]));
-                hfmModel.bindExtents.addPoint(bindTranslation);
             }
+            joint.bindTransform = jointInverseBindTransforms[jointIndex];
+
+            if (joint.parentIndex == -1) {
+                globalTransforms.insert(jointIndex, joint.bindTransform);
+            }
+            else {
+                globalTransforms.insert(jointIndex, globalTransforms.value(joint.parentIndex) * joint.bindTransform);
+            }
+
+            //glm::vec3 bindTranslation = extractTranslation(hfmModel.offset * joint.bindTransform);
+            //hfmModel.bindExtents.addPoint(bindTranslation);
+            joint.bindTransformFoundInCluster = true;
             hfmModel.joints[jointIndex] = joint;
         }
     }
@@ -941,6 +991,7 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
             foreach(auto &primitive, _file.meshes[node.mesh].primitives) {
                 hfmModel.meshes.append(HFMMesh());
                 HFMMesh& mesh = hfmModel.meshes[hfmModel.meshes.size() - 1];
+
                 if (!hfmModel.hasSkeletonJoints) { 
                     HFMCluster cluster;
                     cluster.jointIndex = nodecount;
@@ -1169,6 +1220,7 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                 }
 
                 // Build morph targets (blend shapes)
+                const float scaleModelFeatures = 0.1f;
                 if (!primitive.targets.isEmpty()) {
 
                     // Build list of blendshapes from FST
@@ -1197,7 +1249,7 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                     QVector<double> weights = _file.meshes[node.mesh].weights;
 
                     for (int weightedIndex = 0; weightedIndex < values.size(); weightedIndex++) {
-                        float weight = 0.1f;
+                        float weight = scaleModelFeatures;
                         int indexFromMapping = weightedIndex;
                         int targetIndex = weightedIndex;
                         hfmModel.blendshapeChannelNames.push_back("target_" + QString::number(weightedIndex));
@@ -1243,7 +1295,41 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                     }
                 }
 
+
+                // Build values needed for joint shape info
+                for (int clusterIndex = 0; clusterIndex < mesh.clusters.size() - 1; clusterIndex++) {
+                  //  for (int i = 0; i < mesh.clusterIndices.size(); i++) {
+                        int ind = mesh.clusterIndices[i];
+                        float weight = clusterWeights[ind];
+                        auto joint = hfmModel.joints[clusterIndex];
+
+                       // if (weight >= 0.25f) {
+                        
+                    ShapeVertices& points = hfmModel.shapeVertices.at(clusterIndex);
+                    
+                    glm::mat4 par = glm::mat4();
+                    glm::mat4 parJ = glm::mat4();
+                    if (joint.parentIndex != -1) {
+                        par = hfmModel.joints[joint.parentIndex].transform;
+                        parJ = hfmModel.joints[joint.parentIndex].bindTransform;
+                    }
+                    glm::mat4 meshToJoint = glm::mat4(0.1f);
+                    glm::vec3 vertex = mesh.vertices[ind];
+
+                    // here diag (0.778831 1.70615 0.655584) [ 1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 1; ] 0.359925 0.986301
+                    //here world[ 1 0 0 0; 0 1 0 -1.225; 0 0 1 0; 0 0 0 1; ]
+                    //here world[ 0.984467 0 0 1.07328e-05; 0 0.984467 0 -11.6719; 0 0 0.984467 0.0345607; 0 0 0 1; ]
+                    // here world[ 0.984467 0 0 1.0892e-05; 0 0.984467 0 -10.9251; 0 0 0.984467 0.034559; 0 0 0 1; ]
+                    for (const glm::vec3& vertex : mesh.vertices) {
+                        const glm::mat4 vertexTransform = meshToJoint * glm::translate(glm::mat4(), vertex);
+                        points.push_back(extractTranslation(vertexTransform));
+                    }
+                      //  }
+                }
+
                 mesh.meshExtents.reset();
+                //hfmModel.bindExtents.reset();
+                hfmModel.meshExtents.reset();
                 foreach(const glm::vec3& vertex, mesh.vertices) {
                     mesh.meshExtents.addPoint(vertex);
                     hfmModel.meshExtents.addPoint(vertex);

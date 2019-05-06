@@ -2432,6 +2432,7 @@ void Rig::computeAvatarBoundingCapsule(
     // ... and assume the radiusOut is half the RMS of the X and Z sides:
     radiusOut = 0.5f * sqrtf(0.5f * (diagonal.x * diagonal.x + diagonal.z * diagonal.z));
     heightOut = diagonal.y - 2.0f * radiusOut;
+    std::cout << "here diag " << diagonal << " " << _geometryToRigTransform << " " << radiusOut << " " << heightOut << std::endl;
 
     glm::vec3 capsuleCenter = transformPoint(_geometryToRigTransform, (0.5f * (totalExtents.maximum + totalExtents.minimum)));
     localOffsetOut = capsuleCenter - hipsPosition;
