@@ -1331,8 +1331,15 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                 //hfmModel.bindExtents.reset();
                 hfmModel.meshExtents.reset();
                 foreach(const glm::vec3& vertex, mesh.vertices) {
-                    mesh.meshExtents.addPoint(vertex);
-                    hfmModel.meshExtents.addPoint(vertex);
+                    /*mesh.meshExtents.addPoint(vertex);
+                    hfmModel.meshExtents.addPoint(vertex);*/
+
+                    glm::vec3 transformedVertex = glm::vec3(/*modelTransform * */ glm::vec4(vertex, 1.0f));
+                    mesh.meshExtents.minimum = glm::min(hfmModel.meshExtents.minimum, transformedVertex);
+                    mesh.meshExtents.maximum = glm::max(hfmModel.meshExtents.maximum, transformedVertex);
+                    hfmModel.meshExtents.minimum = glm::min(hfmModel.meshExtents.minimum, transformedVertex);
+                    hfmModel.meshExtents.maximum = glm::max(hfmModel.meshExtents.maximum, transformedVertex);
+
                 }
                
                 mesh.meshIndex = hfmModel.meshes.size();

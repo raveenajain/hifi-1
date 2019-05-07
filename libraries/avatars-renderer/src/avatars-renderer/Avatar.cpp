@@ -1957,7 +1957,6 @@ void Avatar::ensureInScene(AvatarSharedPointer self, const render::ScenePointer&
 
 // thread-safe
 float Avatar::getEyeHeight() const {
-    std::cout << "here eye height " << getModelScale() << " " << getUnscaledEyeHeight() << std::endl;
     return getModelScale() * getUnscaledEyeHeight();
 }
 
@@ -1978,8 +1977,11 @@ void Avatar::buildUnscaledEyeHeightCache() {
     const float MESH_SLOP_RATIO = 1.5f;
     if (meshHeight > skeletonHeight * MESH_SLOP_RATIO) {
         _unscaledEyeHeightCache.set(meshHeight);
+        std::cout << "here mesh " << meshHeight << std::endl;
     } else {
         _unscaledEyeHeightCache.set(skeletonHeight);
+                std::cout << "here skele " << skeletonHeight << std::endl;
+
     }
 }
 
