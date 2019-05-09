@@ -856,6 +856,7 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
     HFMJoint joint;
     joint.distanceToParent = 0;
     hfmModel.jointIndices["x"] = numNodes;
+    glm::mat4 globalTransform = glm::mat4();
 
     for (int nodeIndex : sortedNodes) {
         auto& node = _file.nodes[nodeIndex];
@@ -868,7 +869,8 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
         joint.translation = extractTranslation(joint.transform);
         joint.rotation = glmExtractRotation(joint.transform);
         glm::vec3 scale = extractScale(joint.transform);
-        joint.postTransform = glm::scale(glm::mat4(), scale);  
+        joint.postTransform = glm::scale(glm::mat4(), scale); 
+        globalTransform = joint.transform * globalTransform;
 
         joint.name = node.name;
         joint.isSkeletonJoint = false;
@@ -1245,16 +1247,21 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                 }
 
                 for (int clusterIndex = 0; clusterIndex < mesh.clusters.size() - 1; clusterIndex++) {
+                    auto joint = hfmModel.joints[clusterIndex];
                     ShapeVertices& points = hfmModel.shapeVertices.at(clusterIndex);
+                    glm::mat4 modelTransform = glm::mat4(0.1f) * globalTransform * joint.transform;
                     for (glm::vec3 vertex : mesh.vertices) {
-                        points.push_back(vertex);
+                        glm::vec3 transformedVertex = glm::vec3(modelTransform * glm::vec4(vertex, 1.0f));
+                        points.push_back(transformedVertex);
                     }
                 }
 
                 mesh.meshExtents.reset();
+                hfmModel.meshExtents.reset();
                 foreach(const glm::vec3& vertex, mesh.vertices) {
-                    mesh.meshExtents.addPoint(vertex);
-                    hfmModel.meshExtents.addPoint(vertex);
+                    glm::vec3 transformedVertex = glm::vec3(glm::mat4(0.1f) * glm::vec4(vertex, 1.0f));
+                    mesh.meshExtents.addPoint(transformedVertex);
+                    hfmModel.meshExtents.addPoint(transformedVertex);
                 }
                
                 mesh.meshIndex = hfmModel.meshes.size();
