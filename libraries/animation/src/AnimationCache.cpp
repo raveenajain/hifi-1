@@ -21,6 +21,7 @@
 
 #include "AnimationLogging.h"
 #include <FBXSerializer.h>
+#include <GLTFSerializer.h>
 
 int animationPointerMetaTypeId = qRegisterMetaType<AnimationPointer>();
 
@@ -70,10 +71,12 @@ void AnimationReader::run() {
         urlValid &= !_url.path().isEmpty();
 
         if (urlValid) {
-            // Parse the FBX directly from the QNetworkReply
+            // Parse the FBX or GLTF/GLB directly from the QNetworkReply
             HFMModel::Pointer hfmModel;
             if (_url.path().toLower().endsWith(".fbx")) {
                 hfmModel = FBXSerializer().read(_data, QVariantHash(), _url.path());
+            } else if (_url.path().toLower().endsWith(".gltf") || _url.path().toLower().endsWith(".glb")) {
+                hfmModel = GLTFSerializer().read(_data, QVariantHash(), _url.path());
             } else {
                 QString errorStr("usupported format");
                 emit onError(299, errorStr);

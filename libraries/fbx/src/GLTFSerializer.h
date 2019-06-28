@@ -584,7 +584,7 @@ namespace GLTFChannelTargetPath {
 
 struct GLTFChannelTarget {
     int node;
-    int path;
+    QString path;
     QMap<QString, bool> defined;
     void dump() {
         if (defined["node"]) {

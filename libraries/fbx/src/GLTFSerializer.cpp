@@ -350,30 +350,32 @@ bool GLTFSerializer::addAnimation(const QJsonObject& object) {
     QJsonArray channels;
     if (getObjectArrayVal(object, "channels", channels, animation.defined)) {
         foreach(const QJsonValue & v, channels) {
+            GLTFChannel channel;
             if (v.isObject()) {
-                GLTFChannel channel;
                 getIntVal(v.toObject(), "sampler", channel.sampler, channel.defined);
                 QJsonObject jsChannel;
                 if (getObjectVal(v.toObject(), "target", jsChannel, channel.defined)) {
                     getIntVal(jsChannel, "node", channel.target.node, channel.target.defined);
-                    getIntVal(jsChannel, "path", channel.target.path, channel.target.defined);
+                    getStringVal(jsChannel, "path", channel.target.path, channel.target.defined);
                 }             
             }
+            animation.channels.push_back(channel);
         }
     }
 
     QJsonArray samplers;
     if (getObjectArrayVal(object, "samplers", samplers, animation.defined)) {
         foreach(const QJsonValue & v, samplers) {
+            GLTFAnimationSampler sampler;
             if (v.isObject()) {
-                GLTFAnimationSampler sampler;
                 getIntVal(v.toObject(), "input", sampler.input, sampler.defined);
-                getIntVal(v.toObject(), "output", sampler.input, sampler.defined);
+                getIntVal(v.toObject(), "output", sampler.output, sampler.defined);
                 QString interpolation;
                 if (getStringVal(v.toObject(), "interpolation", interpolation, sampler.defined)) {
                     sampler.interpolation = getAnimationSamplerInterpolation(interpolation);
                 }
             }
+            animation.samplers.push_back(sampler);
         }
     }
     
@@ -667,7 +669,7 @@ bool GLTFSerializer::parseGLTF(const hifi::ByteArray& data) {
 
         QJsonArray animations;
         if (getObjectArrayVal(jsFile, "animations", animations, _file.defined)) {
-            foreach(const QJsonValue & animVal, accessors) {
+            foreach(const QJsonValue & animVal, animations) {
                 if (animVal.isObject()) {
                     success = success && addAnimation(animVal.toObject());
                 }
@@ -899,6 +901,126 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
     }
 
 
+    // Build animation frames and transforms
+    std::vector<QVector<glm::vec4>> rotatedAnimNodes;
+    std::vector<QVector<glm::vec3>> translatedAnimNodes;
+    rotatedAnimNodes.resize(numNodes);
+    translatedAnimNodes.resize(numNodes);
+    std::vector<std::vector<bool>> rotationsExist;
+    std::vector<std::vector<bool>> translationsExist;
+    rotationsExist.resize(numNodes);
+    translationsExist.resize(numNodes);
+    QVector<float> maxFrameTimes;
+    int frameCount = 1;
+
+    for (auto anim : _file.animations) {
+        QVector<QVector<float>> framesInSeconds; 
+        framesInSeconds.reserve(anim.samplers.size());
+
+        // get times for existing key frames 
+        for (auto sampler : anim.samplers) {
+            int input = sampler.input;
+            GLTFAccessor& inputAccessor = _file.accessors[input];
+            QVector<float> inputTimes;
+            addArrayFromAccessor(inputAccessor, inputTimes);
+            framesInSeconds.push_back(inputTimes);
+            if (inputAccessor.count > frameCount) {
+                frameCount = inputAccessor.count;
+                maxFrameTimes = inputTimes;
+            }
+        }
+
+        for (int curFrame = 0; curFrame < frameCount; ++curFrame) {
+            HFMAnimationFrame frame;
+            frame.rotations.resize(numNodes);
+            frame.translations.resize(numNodes);
+            hfmModel.animationFrames.append(frame);
+        }
+
+        for (auto animChannel : anim.channels) {
+            auto currentSampler = anim.samplers[animChannel.sampler];
+            auto currentTarget = animChannel.target;
+            int targetNodeIndex = sortedNodes.at(originalToNewNodeIndexMap[currentTarget.node]);
+
+            rotationsExist[targetNodeIndex].reserve(frameCount);
+            translationsExist[targetNodeIndex].reserve(frameCount);
+
+            QVector<glm::vec4> animRotations;
+            QVector<glm::vec3> animTranslations;
+            QVector<float> outputValues;
+            GLTFAccessor& outPutAccessor = _file.accessors[currentSampler.output];
+            addArrayFromAccessor(outPutAccessor, outputValues);
+            if (currentTarget.path == "rotation") {
+                for (int n = 0; n < outputValues.size(); n += 4) {
+                    animRotations.push_back(
+                        glm::vec4(outputValues[n], outputValues[n + 1], outputValues[n + 2], outputValues[n + 3]));
+                }
+            }
+            if (currentTarget.path == "translation") {
+                for (int n = 0; n < outputValues.size(); n += 3) {
+                    animTranslations.push_back(glm::vec3(outputValues[n], outputValues[n + 1], outputValues[n + 2]));
+                }
+            }
+
+            int rotationIndex = 0;
+            int translationIndex = 0;
+            for (int m = 0; m < frameCount; ++m) {
+                QVector<float> samplerFrames = framesInSeconds[animChannel.sampler];
+                float curTime = maxFrameTimes[m];
+
+                if (samplerFrames.size() != frameCount) {
+                    // playback should always begin at time 0, even if the earliest keyframe is not at 0
+                    // "copy" the rotation/translation values of the first keyframe to time 0 
+                    if (m == 0 && samplerFrames.first() != 0.0f) {
+                        samplerFrames.prepend(0.0f);
+                        framesInSeconds[animChannel.sampler].prepend(0.0f);
+                        if (currentTarget.path == "rotation") {
+                            glm::vec4 rotationFirst = animRotations.first();
+                            animRotations.prepend(rotationFirst);
+                        }
+                        if (currentTarget.path == "translation") {
+                            glm::vec3 translationFirst = animTranslations.first();
+                            animTranslations.prepend(translationFirst);
+                        }
+                    }
+
+                    // keep track if a rotation/translation value exists for the targetNode at the "current time"
+                    if (currentTarget.path == "rotation") {
+                        if (curTime == samplerFrames[rotationIndex]) {
+                            rotationsExist[targetNodeIndex].push_back(true);
+                            ++rotationIndex;
+                        } else {
+                            rotationsExist[targetNodeIndex].push_back(false);
+                        }
+                    }
+                    if (currentTarget.path == "translation") {
+                        if (curTime == samplerFrames[translationIndex]) {
+                            translationsExist[targetNodeIndex].push_back(true);
+                            ++translationIndex;
+                        } else {
+                            translationsExist[targetNodeIndex].push_back(false);
+                        }
+                    }
+                } else {
+                    if (currentTarget.path == "rotation") {
+                        rotationsExist[targetNodeIndex].push_back(true);
+                    }
+                    if (currentTarget.path == "translation") {
+                        translationsExist[targetNodeIndex].push_back(true);
+                    }
+                }
+            }
+
+            if (currentTarget.path == "rotation") {
+                rotatedAnimNodes[targetNodeIndex] = animRotations;
+            }
+            if (currentTarget.path == "translation") {
+                translatedAnimNodes[targetNodeIndex] = animTranslations;
+            }
+        }
+    }
+
+
     // Build joints
     HFMJoint joint;
     joint.distanceToParent = 0;
@@ -907,23 +1029,59 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
     globalTransforms.resize(numNodes);
 
     for (int nodeIndex : sortedNodes) {
+        int jointCount = hfmModel.joints.size();
         auto& node = _file.nodes[nodeIndex];
-
-        joint.parentIndex = parents[nodeIndex];
-        if (joint.parentIndex != -1) {
-            joint.parentIndex = originalToNewNodeIndexMap[joint.parentIndex];
-        }
+        
         joint.transform = node.transforms.first();
         joint.translation = extractTranslation(joint.transform);
         joint.rotation = glmExtractRotation(joint.transform);
         glm::vec3 scale = extractScale(joint.transform);
         joint.postTransform = glm::scale(glm::mat4(), scale);
 
-		joint.parentIndex = parents[nodeIndex];
+        joint.parentIndex = parents[nodeIndex];
         globalTransforms[nodeIndex] = joint.transform;
         if (joint.parentIndex != -1) {
             globalTransforms[nodeIndex] = globalTransforms[joint.parentIndex] * globalTransforms[nodeIndex];
             joint.parentIndex = originalToNewNodeIndexMap[joint.parentIndex];
+        }
+
+        // TODOs: see https://github.com/KhronosGroup/glTF-Tutorials/blob/master/gltfTutorial/gltfTutorial_007_Animations.md for info on transitional calculations 
+        if (!_file.animations.isEmpty()) {
+            int animTranslationIndex = 0;
+            int animRotationIndex = 0;
+            for (int f = 0; f < frameCount; ++f) {
+                float interpolationValue = maxFrameTimes[f] - maxFrameTimes[f - 1] / maxFrameTimes[f + 1] - maxFrameTimes[f - 1];
+
+                if (translatedAnimNodes[nodeIndex].isEmpty()) {
+                    hfmModel.animationFrames[f].translations[jointCount] = joint.translation;
+                } else {
+                    if (!translationsExist[nodeIndex][f]) {
+                        // TODO: transitional calculations for 
+                        // hfmModel.animationFrames[f].translations[jointCount] = previousTranslation + interpolationValue * (nextTranslation - previousTranslation);
+                    } else {
+                        hfmModel.animationFrames[f].translations[jointCount] = translatedAnimNodes[nodeIndex][animTranslationIndex];
+                        ++animTranslationIndex;
+                    }
+                }
+                if (rotatedAnimNodes[nodeIndex].isEmpty()) {
+                    hfmModel.animationFrames[f].rotations[jointCount] = joint.rotation;
+                } else {
+                    if (!rotationsExist[nodeIndex][f]) {
+                        // TODO: transitional calculations for hfmModel.animationFrames[f].rotations[jointCount]
+                    } else {
+                        glm::vec4 rotationVec = rotatedAnimNodes[nodeIndex][animRotationIndex];
+                        hfmModel.animationFrames[f].rotations[jointCount] = glm::quat(rotationVec.w, rotationVec.x, rotationVec.y, rotationVec.z);
+                        ++animRotationIndex;
+                    }
+                }
+            }
+        }
+
+        if (joint.parentIndex != -1) {
+        }
+
+        if (node.name.isEmpty()) {
+            node.name = "node_" + QString::number(nodeIndex);
         }
 
         joint.name = node.name;
@@ -943,9 +1101,7 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
 
     // Build skeleton
     std::vector<glm::mat4> jointInverseBindTransforms;
-    std::vector<glm::mat4> globalBindTransforms;
     jointInverseBindTransforms.resize(numNodes);
-    globalBindTransforms.resize(numNodes);
 
     hfmModel.hasSkeletonJoints = !_file.skins.isEmpty();
     if (hfmModel.hasSkeletonJoints) {
@@ -972,10 +1128,6 @@ bool GLTFSerializer::buildGeometry(HFMModel& hfmModel, const hifi::VariantHash& 
                             value[matrixCount + 12], value[matrixCount + 13], value[matrixCount + 14], value[matrixCount + 15]);
                 } else {
                     jointInverseBindTransforms[jointIndex] = glm::mat4();
-                }
-                globalBindTransforms[jointIndex] = jointInverseBindTransforms[jointIndex];
-                if (joint.parentIndex != -1) {
-                    globalBindTransforms[jointIndex] = globalBindTransforms[joint.parentIndex] * globalBindTransforms[jointIndex];
                 }
                 glm::vec3 bindTranslation = extractTranslation(hfmModel.offset * glm::inverse(jointInverseBindTransforms[jointIndex]));
                 hfmModel.bindExtents.addPoint(bindTranslation);
